@@ -5,7 +5,8 @@ import './SecurityDashboard.css';
 
 const SecurityDashboard = () => {
   const navigate = useNavigate();
-  const user = authService.getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [patrolStats, setPatrolStats] = useState({
     completedScans: 0,
     totalGates: 15,
@@ -17,6 +18,36 @@ const SecurityDashboard = () => {
   const [emergencyAlerts, setEmergencyAlerts] = useState([]);
 
   useEffect(() => {
+    checkUserAccess();
+    loadDashboardData();
+  }, []);
+
+  const checkUserAccess = async () => {
+    try {
+      const user = await authService.getCurrentUser();
+      
+      if (!user) {
+        navigate('/login');
+        return;
+      }
+
+      // Only check if user is security - NO admin approval needed
+      if (user.userType !== 'security') {
+        alert('Access denied. This area is for security officers only.');
+        await authService.logout();
+        navigate('/login');
+        return;
+      }
+
+      setCurrentUser(user);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error checking user access:', error);
+      navigate('/login');
+    }
+  };
+
+  const loadDashboardData = async () => {
     // Mock data
     setPatrolStats({
       completedScans: 8,
@@ -37,10 +68,10 @@ const SecurityDashboard = () => {
     setEmergencyAlerts([
       { id: 1, type: 'emergency', location: 'Block 12', time: '13:20', status: 'active' }
     ]);
-  }, []);
+  };
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await authService.logout();
     navigate('/login');
   };
 
@@ -75,14 +106,17 @@ const SecurityDashboard = () => {
     }
   };
 
-  if (!user || user.userType !== 'security') {
+  if (loading) {
     return (
-      <div className="access-denied">
-        <h2>Access Denied</h2>
-        <p>You don't have permission to access this page.</p>
-        <button onClick={() => navigate('/login')}>Go to Login</button>
+      <div className="loading-container">
+        <div className="spinner"></div>
+        <p>Loading security dashboard...</p>
       </div>
     );
+  }
+
+  if (!currentUser) {
+    return null; // Will redirect in checkUserAccess
   }
 
   return (
@@ -91,7 +125,8 @@ const SecurityDashboard = () => {
       <header className="dashboard-header">
         <div className="header-content">
           <h1>Security Officer Dashboard</h1>
-          <p>Welcome, Officer {user.lastName}! Ready for patrol?</p>
+          <p>Welcome, Officer {currentUser.lastName}! Ready for patrol?</p>
+          <small>Your security account is active and ready</small>
         </div>
         <div className="header-actions">
           <button className="btn-emergency" onClick={() => alert('Emergency protocol activated!')}>
