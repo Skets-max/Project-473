@@ -25,41 +25,65 @@ const Register = () => {
       ...formData,
       [e.target.name]: e.target.value
     });
+    
+    // Clear specific field error when user types
+    if (errors[e.target.name]) {
+      setErrors({
+        ...errors,
+        [e.target.name]: ''
+      });
+    }
     setMessage('');
-    setErrors({});
   };
 
+  // Enhanced validation function
   const validateForm = () => {
     const newErrors = {};
 
+    // First Name validation
     if (!formData.firstName.trim()) {
       newErrors.firstName = 'First name is required';
+    } else if (formData.firstName.length < 2) {
+      newErrors.firstName = 'First name must be at least 2 characters';
+    } else if (!/^[a-zA-Z\s]+$/.test(formData.firstName)) {
+      newErrors.firstName = 'First name can only contain letters and spaces';
     }
 
+    // Last Name validation
     if (!formData.lastName.trim()) {
       newErrors.lastName = 'Last name is required';
+    } else if (formData.lastName.length < 2) {
+      newErrors.lastName = 'Last name must be at least 2 characters';
+    } else if (!/^[a-zA-Z\s]+$/.test(formData.lastName)) {
+      newErrors.lastName = 'Last name can only contain letters and spaces';
     }
 
+    // Email validation
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
     }
 
-    if (!formData.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    }
-
+    
+    // Address validation for members
     if (formData.userType === 'member' && !formData.address.trim()) {
-      newErrors.address = 'Address is required for members';
+      newErrors.address = 'Address is required for community members';
+    } else if (formData.userType === 'member' && formData.address.length < 10) {
+      newErrors.address = 'Please provide a complete address (minimum 10 characters)';
     }
 
+    // Password validation
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    } else {
+      const passwordError = validatePassword(formData.password);
+      if (passwordError) {
+        newErrors.password = passwordError;
+      }
     }
 
+    // Confirm Password validation
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
@@ -70,9 +94,57 @@ const Register = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Password strength indicator
+  const getPasswordStrength = (password) => {
+    if (!password) return { strength: 0, text: '', color: '#e0e0e0' };
+    
+    let strength = 0;
+    if (password.length >= 8) strength++;
+    if (/[a-z]/.test(password)) strength++;
+    if (/[A-Z]/.test(password)) strength++;
+    if (/\d/.test(password)) strength++;
+    if (/[@$!%*?&]/.test(password)) strength++;
+    
+    const strengthData = [
+      { strength: 0, text: 'Very Weak', color: '#ff4444' },
+      { strength: 1, text: 'Weak', color: '#ff8800' },
+      { strength: 2, text: 'Fair', color: '#ffbb33' },
+      { strength: 3, text: 'Good', color: '#00C851' },
+      { strength: 4, text: 'Strong', color: '#007E33' },
+      { strength: 5, text: 'Very Strong', color: '#007E33' }
+    ][strength];
+    
+    return strengthData;
+  };
+
+  const validatePassword = (password) => {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    
+    if (!/(?=.*[a-z])/.test(password)) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    
+    if (!/(?=.*[A-Z])/.test(password)) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    
+    if (!/(?=.*\d)/.test(password)) {
+      return 'Password must contain at least one number';
+    }
+    
+    if (!/(?=.*[@$!%*?&])/.test(password)) {
+      return 'Password must contain at least one special character (@$!%*?&)';
+    }
+    
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setMessage('');
 
     if (!validateForm()) {
       setLoading(false);
@@ -84,18 +156,29 @@ const Register = () => {
       
       if (result.success) {
         setMessage(result.message);
-        setTimeout(() => {
-          navigate('/login?registered=true');
-        }, 3000);
+        // Clear form on success
+        setFormData({
+          firstName: '',
+          lastName: '',
+          email: '',
+          phone: '',
+          password: '',
+          confirmPassword: '',
+          userType: 'member',
+          address: ''
+        });
       } else {
         setMessage(result.message);
       }
     } catch (error) {
       setMessage('Registration failed. Please try again.');
+      console.error('Registration error:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const passwordStrength = getPasswordStrength(formData.password);
 
   return (
     <div className="auth-container">
@@ -110,15 +193,21 @@ const Register = () => {
         </div>
         
         {message && (
-          <div className={`alert ${message.includes('success') ? 'success' : 'error'}`}>
+          <div className={`alert ${message.includes('success') ? 'alert-success' : 'alert-error'}`}>
             {message}
+            {message.includes('success') && (
+              <div className="verification-note">
+                <strong>Important:</strong> Check your spam folder if you don't see the email within 5 minutes.
+                You must verify your email before you can login.
+              </div>
+            )}
           </div>
         )}
         
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="firstName">First Name</label>
+              <label htmlFor="firstName">First Name *</label>
               <input
                 type="text"
                 id="firstName"
@@ -134,7 +223,7 @@ const Register = () => {
             </div>
             
             <div className="form-group">
-              <label htmlFor="lastName">Last Name</label>
+              <label htmlFor="lastName">Last Name *</label>
               <input
                 type="text"
                 id="lastName"
@@ -151,7 +240,7 @@ const Register = () => {
           </div>
           
           <div className="form-group">
-            <label htmlFor="email">Email Address</label>
+            <label htmlFor="email">Email Address *</label>
             <input
               type="email"
               id="email"
@@ -167,7 +256,7 @@ const Register = () => {
           </div>
           
           <div className="form-group">
-            <label htmlFor="phone">Phone Number</label>
+            <label htmlFor="phone">Phone Number *</label>
             <input
               type="tel"
               id="phone"
@@ -180,10 +269,11 @@ const Register = () => {
               className={errors.phone ? 'error' : ''}
             />
             {errors.phone && <span className="field-error">{errors.phone}</span>}
+            <small className="hint">Format: +267 followed by 7-8 digits</small>
           </div>
           
           <div className="form-group">
-            <label htmlFor="userType">I am a</label>
+            <label htmlFor="userType">I am a *</label>
             <select
               id="userType"
               name="userType"
@@ -198,17 +288,17 @@ const Register = () => {
           
           {formData.userType === 'member' && (
             <div className="form-group">
-              <label htmlFor="address">Home Address</label>
-              <input
-                type="text"
+              <label htmlFor="address">Home Address *</label>
+              <textarea
                 id="address"
                 name="address"
                 value={formData.address}
                 onChange={handleChange}
                 required
                 disabled={loading}
-                placeholder="Enter your full address"
+                placeholder="Enter your full residential address"
                 className={errors.address ? 'error' : ''}
+                rows="3"
               />
               {errors.address && <span className="field-error">{errors.address}</span>}
             </div>
@@ -216,7 +306,7 @@ const Register = () => {
           
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">Password *</label>
               <input
                 type="password"
                 id="password"
@@ -225,14 +315,33 @@ const Register = () => {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                placeholder="Create a password"
+                placeholder="Create a strong password"
                 className={errors.password ? 'error' : ''}
               />
+              {formData.password && (
+                <div className="password-strength">
+                  <div className="strength-bar">
+                    <div 
+                      className="strength-fill"
+                      style={{
+                        width: `${(passwordStrength.strength / 5) * 100}%`,
+                        backgroundColor: passwordStrength.color
+                      }}
+                    ></div>
+                  </div>
+                  <span className="strength-text" style={{ color: passwordStrength.color }}>
+                    {passwordStrength.text}
+                  </span>
+                </div>
+              )}
               {errors.password && <span className="field-error">{errors.password}</span>}
+              <small className="hint">
+                Password must contain: 8+ characters, uppercase, lowercase, number, and special character (@$!%*?&)
+              </small>
             </div>
             
             <div className="form-group">
-              <label htmlFor="confirmPassword">Confirm Password</label>
+              <label htmlFor="confirmPassword">Confirm Password *</label>
               <input
                 type="password"
                 id="confirmPassword"
@@ -245,6 +354,9 @@ const Register = () => {
                 className={errors.confirmPassword ? 'error' : ''}
               />
               {errors.confirmPassword && <span className="field-error">{errors.confirmPassword}</span>}
+              {formData.confirmPassword && formData.password === formData.confirmPassword && (
+                <span className="field-success">✓ Passwords match</span>
+              )}
             </div>
           </div>
           
@@ -271,6 +383,13 @@ const Register = () => {
           <Link to="/" className="auth-link home">
             ← Back to Home
           </Link>
+        </div>
+
+        <div className="privacy-notice">
+          <small>
+            By creating an account, you agree to our Terms of Service and Privacy Policy.
+            Your data will be securely stored and only used for neighborhood security purposes.
+          </small>
         </div>
       </div>
     </div>

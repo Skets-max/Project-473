@@ -1,62 +1,164 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../../services/authService';
+import { db } from '../../config/firebase';
+import { collection, getDocs, doc, updateDoc, query, where, onSnapshot } from 'firebase/firestore';
 import './AdminDashboard.css';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const user = authService.getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [pendingUsers, setPendingUsers] = useState([]);
   const [stats, setStats] = useState({
     pendingApprovals: 0,
     activeOfficers: 0,
     totalMembers: 0,
-    suspendedAccounts: 0,
-    recentAlerts: 0
+    suspendedAccounts: 0
   });
   const [recentActivity, setRecentActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Mock data - replace with actual API calls
-    setStats({
-      pendingApprovals: 5,
-      activeOfficers: 12,
-      totalMembers: 150,
-      suspendedAccounts: 3,
-      recentAlerts: 2
-    });
-
-    setRecentActivity([
-      { id: 1, type: 'registration', user: 'John Doe', time: '2 hours ago', status: 'pending' },
-      { id: 2, type: 'suspension', user: 'Mike Wilson', time: '5 hours ago', status: 'completed' },
-      { id: 3, type: 'patrol_issue', user: 'Officer Smith', time: '1 day ago', status: 'investigating' }
-    ]);
+    loadUserData();
+    loadPendingUsers();
+    setupRealtimeListeners();
   }, []);
 
-  const handleLogout = () => {
-    authService.logout();
+  const loadUserData = async () => {
+    try {
+      const user = await authService.getCurrentUser();
+      
+      if (!user) {
+        navigate('/login');
+        return;
+      }
+
+      // ONLY check if user is admin - NO email verification or admin approval needed
+      if (user.userType !== 'admin') {
+        alert('Access denied. This area is for administrators only.');
+        await authService.logout();
+        navigate('/login');
+        return;
+      }
+
+      setCurrentUser(user);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading user:', error);
+      navigate('/login');
+    }
+  };
+
+  const loadPendingUsers = async () => {
+    try {
+      // Since we removed admin approval, we don't need pending users
+      // But keeping this for demonstration if you want to track other statuses
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('status', 'in', ['pending', 'active']) // Updated to include active users
+      );
+      
+      const querySnapshot = await getDocs(usersQuery);
+      const usersList = [];
+      
+      querySnapshot.forEach((doc) => {
+        usersList.push({ id: doc.id, ...doc.data() });
+      });
+
+      setPendingUsers(usersList);
+      
+      // Load stats for all users
+      const allUsersSnapshot = await getDocs(collection(db, 'users'));
+      const allUsers = [];
+      allUsersSnapshot.forEach(doc => allUsers.push(doc.data()));
+      
+      // Updated stats - no more pending approvals since no admin approval needed
+      setStats({
+        pendingApprovals: 0, // Set to 0 since no approval needed
+        activeOfficers: allUsers.filter(u => u.userType === 'security').length, // Removed status check
+        totalMembers: allUsers.filter(u => u.userType === 'member').length, // Removed status check
+        suspendedAccounts: allUsers.filter(u => u.status === 'suspended').length
+      });
+      
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
+
+  const setupRealtimeListeners = () => {
+    // Real-time listener for users (optional now)
+    const usersQuery = query(collection(db, 'users'));
+
+    const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
+      const updatedUsers = [];
+      snapshot.forEach((doc) => {
+        updatedUsers.push({ id: doc.id, ...doc.data() });
+      });
+      setPendingUsers(updatedUsers);
+      
+      // Update stats
+      setStats({
+        pendingApprovals: 0,
+        activeOfficers: updatedUsers.filter(u => u.userType === 'security').length,
+        totalMembers: updatedUsers.filter(u => u.userType === 'member').length,
+        suspendedAccounts: updatedUsers.filter(u => u.status === 'suspended').length
+      });
+    });
+
+    return unsubscribe;
+  };
+
+  // These functions are kept but modified since no approval needed
+  const suspendUser = async (userId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        status: 'suspended',
+        suspendedAt: new Date().toISOString(),
+        suspendedBy: currentUser.uid
+      });
+      
+      alert('User suspended successfully!');
+      loadPendingUsers(); // Refresh data
+    } catch (error) {
+      console.error('Error suspending user:', error);
+      alert('Error suspending user. Please try again.');
+    }
+  };
+
+  const activateUser = async (userId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        status: 'active',
+        activatedAt: new Date().toISOString(),
+        activatedBy: currentUser.uid
+      });
+      
+      alert('User activated successfully!');
+      loadPendingUsers(); // Refresh data
+    } catch (error) {
+      console.error('Error activating user:', error);
+      alert('Error activating user. Please try again.');
+    }
+  };
+
+  const handleLogout = async () => {
+    await authService.logout();
     navigate('/login');
   };
 
-  const approveUser = (userId) => {
-    // Mock approval - replace with API call
-    alert(`User ${userId} approved successfully`);
-    setStats(prev => ({ ...prev, pendingApprovals: prev.pendingApprovals - 1 }));
-  };
-
-  const suspendUser = (userId) => {
-    // Mock suspension - replace with API call
-    alert(`User ${userId} suspended`);
-    setStats(prev => ({ ...prev, suspendedAccounts: prev.suspendedAccounts + 1 }));
-  };
-
-  if (!user || user.userType !== 'admin') {
+  if (loading) {
     return (
-      <div className="access-denied">
-        <h2>Access Denied</h2>
-        <p>You don't have permission to access this page.</p>
-        <button onClick={() => navigate('/login')}>Go to Login</button>
+      <div className="loading-container">
+        <div className="spinner"></div>
+        <p>Loading Admin Dashboard...</p>
       </div>
     );
+  }
+
+  if (!currentUser) {
+    return null; // Will redirect in loadUserData
   }
 
   return (
@@ -65,7 +167,8 @@ const AdminDashboard = () => {
       <header className="dashboard-header">
         <div className="header-content">
           <h1>Admin Dashboard</h1>
-          <p>Welcome back, {user.firstName}!</p>
+          <p>Welcome back, {currentUser.firstName}!</p>
+          <small>Administrator account - Full system access</small>
         </div>
         <div className="header-actions">
           <button className="btn-primary" onClick={() => navigate('/admin/manage-users')}>
@@ -79,36 +182,28 @@ const AdminDashboard = () => {
 
       {/* Statistics Grid */}
       <div className="stats-grid">
-        <div className="stat-card pending">
-          <div className="stat-icon">⏳</div>
+        <div className="stat-card total-users">
+          <div className="stat-icon">👥</div>
           <div className="stat-content">
-            <h3>{stats.pendingApprovals}</h3>
-            <p>Pending Approvals</p>
+            <h3>{stats.totalMembers + stats.activeOfficers}</h3>
+            <p>Total Users</p>
           </div>
-          <button 
-            className="stat-action"
-            onClick={() => navigate('/admin/manage-users')}
-          >
-            Review
-          </button>
         </div>
 
         <div className="stat-card officers">
           <div className="stat-icon">👮</div>
           <div className="stat-content">
             <h3>{stats.activeOfficers}</h3>
-            <p>Active Officers</p>
+            <p>Security Officers</p>
           </div>
-          <div className="stat-trend">↑ 2 this week</div>
         </div>
 
         <div className="stat-card members">
-          <div className="stat-icon">👥</div>
+          <div className="stat-icon">🏠</div>
           <div className="stat-content">
             <h3>{stats.totalMembers}</h3>
-            <p>Total Members</p>
+            <p>Community Members</p>
           </div>
-          <div className="stat-trend">↑ 5 today</div>
         </div>
 
         <div className="stat-card suspended">
@@ -117,13 +212,63 @@ const AdminDashboard = () => {
             <h3>{stats.suspendedAccounts}</h3>
             <p>Suspended Accounts</p>
           </div>
-          <button 
-            className="stat-action"
-            onClick={() => navigate('/admin/manage-users?filter=suspended')}
-          >
-            Manage
-          </button>
         </div>
+      </div>
+
+      {/* Recent Users Section (instead of Pending Approvals) */}
+      <div className="recent-users">
+        <div className="section-header">
+          <h2>Recent Users</h2>
+          <span className="badge">{pendingUsers.length} total</span>
+        </div>
+        
+        {pendingUsers.length === 0 ? (
+          <div className="empty-state">
+            <p>No users found</p>
+          </div>
+        ) : (
+          <div className="users-list">
+            {pendingUsers.slice(0, 5).map(user => ( // Show only 5 recent users
+              <div key={user.id} className="user-item">
+                <div className="user-info">
+                  <div className="user-avatar">
+                    {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                  </div>
+                  <div className="user-details">
+                    <h4>{user.firstName} {user.lastName}</h4>
+                    <p>{user.email}</p>
+                    <div className="user-meta">
+                      <span className={`user-type ${user.userType}`}>{user.userType}</span>
+                      <span className={`status ${user.status}`}>{user.status}</span>
+                      {user.createdAt && (
+                        <span className="registration-date">
+                          Joined: {new Date(user.createdAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="user-actions">
+                  {user.status === 'suspended' ? (
+                    <button 
+                      className="btn-success"
+                      onClick={() => activateUser(user.id)}
+                    >
+                      Activate
+                    </button>
+                  ) : (
+                    <button 
+                      className="btn-danger"
+                      onClick={() => suspendUser(user.id)}
+                    >
+                      Suspend
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}
@@ -132,8 +277,8 @@ const AdminDashboard = () => {
         <div className="actions-grid">
           <div className="action-card" onClick={() => navigate('/admin/manage-users')}>
             <div className="action-icon">👥</div>
-            <h4>Manage Users</h4>
-            <p>Approve, suspend, or delete user accounts</p>
+            <h4>Manage All Users</h4>
+            <p>View and manage all user accounts</p>
           </div>
 
           <div className="action-card" onClick={() => navigate('/admin/reports')}>
@@ -148,69 +293,10 @@ const AdminDashboard = () => {
             <p>Configure system parameters and alerts</p>
           </div>
 
-          <div className="action-card" onClick={() => alert('Payment monitoring coming soon!')}>
-            <div className="action-icon">💰</div>
-            <h4>Payment Monitoring</h4>
-            <p>Track subscription payments and status</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="recent-activity">
-        <h2>Recent Activity</h2>
-        <div className="activity-list">
-          {recentActivity.map(activity => (
-            <div key={activity.id} className="activity-item">
-              <div className="activity-icon">
-                {activity.type === 'registration' && '📝'}
-                {activity.type === 'suspension' && '⏸️'}
-                {activity.type === 'patrol_issue' && '🚨'}
-              </div>
-              <div className="activity-details">
-                <p className="activity-description">
-                  {activity.type === 'registration' && `New registration from ${activity.user}`}
-                  {activity.type === 'suspension' && `Account suspended: ${activity.user}`}
-                  {activity.type === 'patrol_issue' && `Patrol issue reported by ${activity.user}`}
-                </p>
-                <span className="activity-time">{activity.time}</span>
-              </div>
-              <div className={`activity-status ${activity.status}`}>
-                {activity.status}
-              </div>
-              {activity.type === 'registration' && (
-                <button 
-                  className="btn-small"
-                  onClick={() => approveUser(activity.id)}
-                >
-                  Approve
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* System Alerts */}
-      <div className="system-alerts">
-        <h2>System Alerts</h2>
-        <div className="alert-list">
-          <div className="alert-item warning">
-            <div className="alert-icon">⚠️</div>
-            <div className="alert-content">
-              <h4>Low Patrol Compliance</h4>
-              <p>3 security officers below 70% scan compliance this week</p>
-            </div>
-            <button className="btn-small">Review</button>
-          </div>
-          
-          <div className="alert-item info">
-            <div className="alert-icon">ℹ️</div>
-            <div className="alert-content">
-              <h4>System Update Available</h4>
-              <p>New version 2.1.0 ready for deployment</p>
-            </div>
-            <button className="btn-small">Update</button>
+          <div className="action-card" onClick={() => alert('Audit log feature coming soon!')}>
+            <div className="action-icon">📝</div>
+            <h4>Audit Log</h4>
+            <p>View system activity and user actions</p>
           </div>
         </div>
       </div>

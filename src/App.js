@@ -9,6 +9,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
 import ForgotPassword from './pages/Auth/ForgotPassword';
+import VerifySuccess from './pages/Auth/VerifySuccess'; // ADD THIS IMPORT
 
 // Admin Pages
 import AdminDashboard from './pages/Admin/Dashboard';
@@ -40,6 +41,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-success" element={<VerifySuccess />} /> {/* ADD THIS ROUTE */}
           
           {/* Admin Routes */}
           <Route 
